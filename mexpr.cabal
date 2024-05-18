@@ -59,7 +59,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  MyLib
+    exposed-modules:  MlExpr, Syntax, Context, Eval, Typecheck, Repl
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -69,10 +69,13 @@ library
 
     -- Other library packages from which modules are imported.
     build-depends:    
-        base ^>=4.19.1.0,
+        base,
         megaparsec,
+        mtl,
+        readline,
         scientific,
-        text
+        text,
+        unbound-generics
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -104,6 +107,7 @@ test-suite mexpr-test
 
     -- Test dependencies.
     build-depends:
-        base ^>=4.19.1.0,
+        base,
         mexpr,
-        hspec
+        hspec,
+        unbound-generics

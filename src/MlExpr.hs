@@ -1,10 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
-module MyLib where
+module MlExpr (MExpr(..), MlExpr.parse, pretty) where
 
 import Data.Scientific (Scientific)
 import qualified Data.Char as Char
+import Data.List (intercalate)
 import Data.String ()
-import Data.Text hiding (elem, foldl1, break, concat)
+import Data.Text hiding (elem, foldl1, break, concat, unwords, intercalate)
 import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
@@ -25,9 +26,7 @@ data MExpr
     -- ^ a collection of items which may be empty
     | Compound [MExpr]
     -- ^ a single item constructed from at least two parts, such as function application or an infix expression
-    -- v types of compound made via reconstruct
-    | Apply MExpr MExpr
-    | Binary MExpr MExpr MExpr -- infix 1 + 2
+    -- note Compound is left flat for the next phase to match on
     deriving (Eq, Ord, Show)
 
 sc :: Parser ()
@@ -75,35 +74,17 @@ expr = convert <$> ps
     convert xs = Compound xs
 
 parse :: Text -> Either String [MExpr]
-parse str = 
+parse str =
     case runParser (many (L.nonIndented scn expr) <* eof) "" str of
         Right e -> Right e
         Left err -> Left (errorBundlePretty err)
 
-reconstruct :: ((MExpr -> Either a MExpr) -> [MExpr] -> Maybe MExpr) -> MExpr -> Either a MExpr
-reconstruct isSpecial e =
-    case e of
-        Block es -> Block <$> traverse (reconstruct isSpecial) es
-        Compound es -> findOperator <$> traverse (reconstruct isSpecial) es
-        _ -> Right e
-    where
-        isOperator (Operator _) = True
-        isOperator _ = False
-        findOperator es =
-            case isSpecial (reconstruct isSpecial) es of
-                Nothing ->
-                    case break isOperator es of
-                        (xs, op: ys) -> Binary (foldl1 Apply xs) op (findOperator ys)
-                        _ -> foldl1 Apply es
-                Just special -> special
-
-macros :: (MExpr -> Either a MExpr) -> [MExpr] -> Maybe MExpr
-macros _ [Atom "let", x, Operator "=", y] = Just (Apply (Atom "let") (Block [Binary x (Operator "=") y]))
-macros k ((Atom "let"):x:(Operator "="):rest) =
-    case k (Compound rest) of
-        Right def -> Just (Apply (Atom "let") (Block [Binary x (Operator "=") def]))
-        Left _ -> Nothing
-macros _ _ = Nothing
-
-macroExpand :: MExpr -> Either a MExpr
-macroExpand = reconstruct macros
+pretty :: MExpr -> String
+pretty (Atom a) = unpack a
+pretty (Operator o) = unpack o
+pretty (Number s) = show s
+pretty (String s) = unpack s
+pretty (Compound [e]) = pretty e
+pretty (Compound es) =  "(" ++ (unwords $ fmap pretty es) ++ ")"
+pretty (Block es) =
+    "[" ++ intercalate "; " (fmap pretty es) ++ "]"
