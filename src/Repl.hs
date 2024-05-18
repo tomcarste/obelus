@@ -19,13 +19,9 @@ repl = go (Context {ids=[],defs=[]})
             l <- readline "%"
             case l of
                 Just s -> do
-                    let ep = parse (T.pack s)
-                    let ee = ep >>= traverse match
-                    print (show ep)
-                    print (show ee)
-                    case ee of
-                        Right e -> do
-                            ctx' <- foldM eval ctx e 
+                    case parse (T.pack s) >>= traverse match of
+                        Right es -> do
+                            ctx' <- foldM eval ctx es
                             go ctx'
                         Left err -> do
                             print err
