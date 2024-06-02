@@ -85,6 +85,6 @@ pretty (Operator o) = unpack o
 pretty (Number s) = show s
 pretty (String s) = unpack s
 pretty (Compound [e]) = pretty e
-pretty (Compound es) =  "(" ++ (unwords $ fmap pretty es) ++ ")"
+pretty (Compound es) =  "(" ++ unwords (fmap pretty es) ++ ")"
 pretty (Block es) =
     "[" ++ intercalate "; " (fmap pretty es) ++ "]"

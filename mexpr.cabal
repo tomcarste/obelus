@@ -72,7 +72,7 @@ library
         base,
         megaparsec,
         mtl,
-        readline,
+        haskeline,
         scientific,
         text,
         unbound-generics
