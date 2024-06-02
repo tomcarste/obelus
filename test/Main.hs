@@ -6,7 +6,8 @@ import Syntax
 import qualified Unbound.Generics.LocallyNameless as Unbound
 var :: String -> Term
 var = Var . Unbound.string2Name
-
+record :: [Entry] -> Term
+record = Record . flip Unbound.bind () . fromList
 main :: IO ()
 main = hspec $ do
     describe "MExpr Parsing" $ do
@@ -23,11 +24,11 @@ main = hspec $ do
         it "Compounds simple" $ do
             let mexpr = parse "a b c" 
             mexpr `shouldBe` Right [Compound [Atom "a", Atom "b", Atom "c"]]
-            (mexpr >>= match . Block) `shouldBe` Right (Record [Indexed (Apply (Apply (var "a") (var "b")) (var "c"))])
+            (mexpr >>= match . Block) `shouldBe` Right (record [Indexed (Unbound.Embed (Apply (Apply (var "a") (var "b")) (var "c")))])
         it "Compounds with blocks" $ do
             let mexpr = parse "f [g a]"
             mexpr `shouldBe` Right [Compound[Atom "f", Block [Compound[Atom "g", Atom "a"]]]]
-            (mexpr >>= match . Block) `shouldBe` Right (Record [Indexed (Apply (var "f") (Record [Indexed (Apply (var "g") (var "a"))]))])
+            (mexpr >>= match . Block) `shouldBe` Right (record [Indexed (Unbound.Embed (Apply (var "f") (record [Indexed (Unbound.Embed (Apply (var "g") (var "a")))])))])
         -- it "Compounds with operators" $ do
         --     let mexpr = parse "f a + g b + h c"
         --     mexpr `shouldBe` Right [Compound[Atom "f", Atom "a", Operator "+", Atom "g", Atom "b", Operator "+", Atom "h", Atom "c"]]
@@ -36,7 +37,7 @@ main = hspec $ do
         it "prelude" $ do
             let mexpr = parse "id = (A : Type) -> (x : A) -> x"
             mexpr `shouldBe` Right [Compound [Atom "id",Operator "=",Compound [Atom "A",Operator ":",Atom "Type"],Operator "->",Compound [Atom "x",Operator ":",Atom "A"],Operator "->",Atom "x"]]
-            (mexpr >>= match . Block) `shouldBe` Right (Record [Named (Unbound.string2Name "id") (Lambda (Just Type) (Unbound.bind (Unbound.string2Name "A") (Lambda (Just (var "A")) (Unbound.bind (Unbound.string2Name "x") (var "x")))))])
+            (mexpr >>= match . Block) `shouldBe` Right (record [Named (Unbound.string2Name "id") (Unbound.Embed (Lambda (Just Type) (Unbound.bind (Unbound.string2Name "A") (Lambda (Just (var "A")) (Unbound.bind (Unbound.string2Name "x") (var "x"))))))])
         -- it "multiple statements" $ do
         --     let mexpr = parse "let x = 1\nlet y = 2\nx + y"
         --     mexpr `shouldBe` Right [Compound[Atom "let", Atom "x", Operator "=", Number 1], Compound[Atom "let", Atom "y", Operator "=", Number 2], Compound[Atom "x", Operator "+", Atom "y"]]
