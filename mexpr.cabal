@@ -111,3 +111,14 @@ test-suite mexpr-test
         mexpr,
         hspec,
         unbound-generics
+
+executable obelus
+    default-language: GHC2021
+    hs-source-dirs: app
+    main-is: Main.hs
+    build-depends:
+        base,
+        mexpr,
+        mtl,
+        text,
+        unbound-generics

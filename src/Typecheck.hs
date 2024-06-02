@@ -6,99 +6,106 @@ import Syntax
 import qualified Unbound.Generics.LocallyNameless as Unbound
 import Control.Monad.Except
 import Eval (normalize)
+import Control.Monad.Reader
+import Debug.Trace (traceM)
 
-type TcMonad = Unbound.FreshMT (ExceptT String IO)
-infer :: Context -> Term -> TcMonad Type
-infer ctx e =
+type TcMonad = Gamma
+infer :: Term -> TcMonad Type
+infer e =
     case e of
         Var x ->
-            maybe (throwError ("not found " ++ show x)) pure $ lookupId ctx x
+            maybe (throwError ("not found: " ++ show x)) pure =<< asks (lookupId x)
         Type -> pure Type
         Apply l r -> do
-            ty1 <- infer ctx l
-            ty <- normalize False ctx ty1 
+            ty1 <- infer l
+            ty <- normalize False ty1
             case ty of
                 Pi t u -> do
-                    check ctx r t
+                    check r t
                     pure $ Unbound.instantiate u [r]
-                _ -> throwError "expected function"
+                _ -> throwError $ "expected function got: " ++ show ty
         Lambda (Just t) b -> do
-            check ctx t Type
-            (x,b') <- Unbound.unbind b
-            u <- infer (addId ctx x t) b'
+            check t Type
+            (x, b') <- Unbound.unbind b
+            u <- local (addId x t) $ infer b'
             pure (Pi t (Unbound.bind x u))
         Lambda _ _ -> throwError "Cannot infer type of lambda without argument type"
         Pi t u -> do
-            check ctx t Type
+            check t Type
             (x,u') <- Unbound.unbind u
-            check (addId ctx x t) u' Type
+            local  (addId x t) $ check u' Type
             pure Type
         Sigma t -> do
-            checkTele ctx t
+            (r,()) <- Unbound.unbind t
+            checkTele (toList r)
             pure Type
         Record t -> do
-            ts <- inferTele ctx t
-            pure $ Sigma ts
+            (r,()) <- Unbound.unbind t
+            ts <- inferTele (toList r)
+            pure $ Sigma (Unbound.bind (fromList ts) ())
         Proj e l -> do
-            t <- infer ctx e
-            l' <- normalize False ctx l
+            t <- infer e
+            l' <- normalize False l
             
             case (t, l') of
-                (Sigma r, Var x) -> do
-                    let record = unfold 0 r
+                (Sigma tele, Var x) -> do
+                    (r, ()) <- Unbound.unbind tele
+                    let record = unfold 0 (toList r)
                     case lookup x record of
                         Just v -> pure v
                         Nothing -> throwError "field not found in record"
                 (_, Var _) -> throwError "Attempted projection to something not a record"
                 _ -> throwError "Projection must be to a label"
         Ascribe expr t -> do
-            check ctx t Type
-            check ctx expr t
+            traceM "ascribe"
+            check t Type
+            check expr t
             pure t
     where
-        unfold :: Int -> Telescope -> [(Name, Term)]
+        unfold :: Int -> [Entry] -> [(Name, Term)]
         unfold _ [] = []
         unfold i (x:xs) =
             case x of
-                Indexed e ->
+                Indexed (Unbound.Embed e) ->
                     let end = unfold (i+1) xs
                     in (Unbound.string2Name $ show i,  e):end
-                Named n e ->
+                Named n (Unbound.Embed e) ->
                     let end = unfold (i+1) xs
                     in (n, e): end
-check :: Context -> Term -> Type -> TcMonad ()
-check ctx e ty =
-    case (e, ty) of
-        (Lambda Nothing bndl, Pi t bndp) -> do
+check :: Term -> Type -> TcMonad ()
+check e ty = do
+    ty' <- normalize False ty
+    case (e, ty') of
+        (Lambda _ bndl, Pi t bndp) -> do
             (x, b, _, u) <- maybe (throwError "mismatched binding") pure =<< Unbound.unbind2 bndl bndp
-            check (Context.addDef ctx x t) b u
-        (Lambda Nothing _, _) -> throwError "expected function type"
+            local (Context.addId x t) $ check b u
+        (Lambda _ _, _) -> throwError "expected function type"
         _ -> do
-            t1 <- infer ctx e
-            if Unbound.aeq t1 ty
+            t1 <- infer e
+            if Unbound.aeq t1 ty'
                 then pure ()
-                else throwError ("type mismatch: " ++ prettyPrint t1 ++ " is not " ++ prettyPrint ty)
+                else throwError ("type mismatch: " ++ show t1 ++ " is not " ++ show ty')
 
-inferTele :: Context -> [Entry] -> TcMonad [Entry]
-inferTele _ [] = pure []
-inferTele ctx (x:xs) = 
+inferTele :: [Entry] -> TcMonad [Entry]
+inferTele [] = pure []
+inferTele (x:xs) = 
     case x of
-        Indexed e -> do
-            t <- infer ctx e
-            ts <- inferTele ctx xs
-            pure (Indexed t:ts)
-        Named n e -> do
-            t <- infer ctx e
-            ts <- inferTele (Context.addId ctx n t) xs
-            pure (Named n t:ts)
+        Indexed (Unbound.Embed e) -> do
+            t <- infer e
+            ts <- inferTele xs
+            pure (Indexed (Unbound.Embed t):ts)
+        Named n (Unbound.Embed e) -> do
+            t <- infer e
+            ts <- local (Context.addId n t) $ inferTele xs
+            pure (Named n (Unbound.Embed t):ts)
 
-checkTele :: Context -> [Entry] -> TcMonad ()
-checkTele _ [] = pure ()
-checkTele ctx (x:xs) = 
+checkTele :: [Entry] -> TcMonad ()
+checkTele [] = pure ()
+checkTele (x:xs) = 
     case x of
-        Indexed e -> do
-            checkTele ctx xs
-            check ctx e Type
-        Named n e -> do
-            checkTele (Context.addId ctx n e) xs
-            check ctx e Type
+        Indexed (Unbound.Embed e) -> do
+            checkTele xs
+            check e Type
+        Named n (Unbound.Embed e) -> do
+            local (Context.addId n e) $ checkTele xs
+            check e Type

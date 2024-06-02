@@ -1,19 +1,25 @@
 module Context where
 import Syntax
+import qualified Unbound.Generics.LocallyNameless as Unbound
+import Control.Monad.Reader
+import Control.Monad.Except
+data Context 
+    = Context {ids:: [(Name, Type)], defs:: [(Name, Term)]}
+    deriving Show
 
-data Context = Context {ids:: [(Name, Type)], defs:: [(Name, Term)]}
+lookupId :: Name -> Context -> Maybe Type
+lookupId  name (Context {ids}) = lookup name ids
 
-index :: Context -> Int -> (Name, Type)
-index (Context {ids}) i = ids !! i
+addId :: Name -> Type -> Context -> Context
+addId n t ctx = ctx {ids= (n,t): ids ctx}
 
-lookupId :: Context -> Name -> Maybe Type
-lookupId (Context {ids}) name = lookup name ids
+lookupDef :: Name -> Context -> Maybe Term
+lookupDef name (Context {defs}) = lookup name defs
 
-addId :: Context -> Name -> Type -> Context
-addId ctx n t = ctx {ids= (n,t): ids ctx}
+addDef :: Name -> Term -> Context -> Context
+addDef n t ctx = ctx {defs = (n,t): defs ctx}
 
-lookupDef :: Context -> Name -> Maybe Term
-lookupDef (Context {defs}) name = lookup name defs
+type Gamma = Unbound.FreshMT (ReaderT Context (ExceptT String IO))
 
-addDef :: Context -> Name -> Term -> Context
-addDef ctx n t = ctx {defs = (n,t): defs ctx}
+runGamma :: Gamma a -> IO (Either String a)
+runGamma g = runExceptT $ runReaderT (Unbound.runFreshMT g) (Context {ids=[], defs=[]})

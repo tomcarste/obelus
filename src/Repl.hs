@@ -7,43 +7,43 @@ import Typecheck
 import MlExpr
 import qualified Unbound.Generics.LocallyNameless as Unbound
 import qualified Data.Text as T
-import Control.Monad.Except (runExceptT)
 import System.Console.Haskeline
-import Control.Monad (foldM)
+import Control.Monad.Reader
 
 repl :: IO ()
-repl = go (Context {ids=[],defs=[]})
+repl = void $ runGamma go
     where
-        go :: Context -> IO ()
-        go ctx =
-            do
+        go :: Gamma ()
+        go = do
             l <- runInputT defaultSettings $ getInputLine "%"
             case l of
-                Just s -> do
+                Nothing -> go
+                Just s ->
                     case parse (T.pack s) >>= match . Block  of
                         Right es -> do
-                            ctx' <- eval ctx es
-                            go ctx'
+                            ctx' <- eval es
+                            local (const ctx') go
+                            
                         Left err -> do
-                            print err
-                            go ctx
-                Nothing -> pure ()
-        eval ctx e = do
-            result <- runExceptT $ Unbound.runFreshMT $ infer ctx e
-            case result of
-                Left err -> do
-                    print err
+                            liftIO $ print err
+                            go
+        eval :: Term -> Gamma Context
+        eval e = do
+            ctx <- ask
+            t <- infer e
+            e' <- normalize True e
+            case (t, e') of
+                (Sigma teleTy, v@(Record tele)) -> do
+                    (rt, ()) <- Unbound.unbind teleTy
+                    (r, ()) <- Unbound.unbind tele
+                    liftIO $ putStrLn ("signature : " ++ show t ++ "\nmodule = " ++ show v)
+                    foldM addRecord2 ctx (zip (toList rt) (toList r))
+                (_, v) -> do
+                    liftIO $ putStrLn ("type : " ++ show t ++ "\nvalue = " ++ show v)
                     pure ctx
-                Right t -> do
-                    case (t, Unbound.runFreshM $ normalize True ctx e) of
-                        (Sigma rt, v@(Record r)) -> do
-                            putStrLn ("signature : " ++ prettyPrint t ++ "\nmodule = " ++ prettyPrint v)
-                            foldM addRecord2 ctx (zip rt r)
-                        (_, v) -> do
-                            putStrLn ("type : " ++ prettyPrint t ++ "\nvalue = " ++ prettyPrint v)
-                            pure ctx
 
-addRecord2 :: Context -> (Entry, Entry) -> IO Context
-addRecord2 ctx (Named n t, Named _ e) = do
-    pure $ Context.addId (Context.addDef ctx n e) n t
+
+addRecord2 :: Applicative f => Context -> (Entry, Entry) -> f Context
+addRecord2 ctx (Named n (Unbound.Embed e), Named _ (Unbound.Embed t)) = do
+    pure $ Context.addId n t (Context.addDef n e ctx)
 addRecord2 ctx _ = pure ctx

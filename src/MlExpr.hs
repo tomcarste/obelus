@@ -87,4 +87,4 @@ pretty (String s) = unpack s
 pretty (Compound [e]) = pretty e
 pretty (Compound es) =  "(" ++ unwords (fmap pretty es) ++ ")"
 pretty (Block es) =
-    "[" ++ intercalate "; " (fmap pretty es) ++ "]"
+    "[\n\t" ++ intercalate ";\n\t" (fmap pretty es) ++ "\n]"

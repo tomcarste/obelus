@@ -1,0 +1,5 @@
+let id : (x : Type) -> x -> x = x -> y -> y
+
+let idi = (x : Type) -> (y : x) -> y
+
+let idid : ((x : Type) -> x -> x) = id (type ((x : Type) -> x -> x)) id
