@@ -9,6 +9,7 @@ import MlExpr
 import Control.Monad.Except (Except, runExcept, throwError)
 import Data.Functor ((<&>))
 import GHC.Stack (HasCallStack)
+import Data.Foldable (foldrM)
 
 type Name = Unbound.Name Term
 type Type = Term
@@ -27,9 +28,11 @@ data Term
 instance Unbound.Subst Term Term where
     isvar (Var x) = Just (Unbound.SubstName x)
     isvar _ = Nothing
+
 strip :: Term -> Term
 strip (Ascribe e _) = e
 strip e = e
+
 instance Unbound.Alpha Term where
     aeq' :: Unbound.AlphaCtx -> Term -> Term -> Bool
     aeq' ctx a b= (Unbound.gaeq ctx `on` from) (strip a) (strip b)
@@ -53,11 +56,14 @@ toList Nil = []
 toList (Cons bnd) =
     let (a, rst) = Unbound.unrebind bnd
     in a : toList rst
+
 fromList :: [Entry] -> Telescope Entry
 fromList = foldr (\ a b -> Cons (Unbound.rebind a b)) Nil
+
 match :: MExpr -> Either String Term
 match e =
     runExcept . Unbound.runFreshMT $ match' e
+
 match' :: MExpr -> Unbound.FreshMT (Except String) Term
 match' (Atom "Type") = pure Type
 match' (Atom "Unit") = pure $ Sigma (Unbound.bind Nil ())
@@ -66,42 +72,61 @@ match' (Operator o) = pure . Var . Unbound.string2Name $ unpack o
 match' (String _) = throwError "unimplemented"
 match' (Number _) = throwError "unimplemented"
 match' (Compound []) = pure $ Record (Unbound.bind Nil ())
-match' (Compound [Atom "type", e]) = matchType e
-match' (Compound [e, Operator ".", l]) = do
-    e' <- match' e
-    l' <- match' l
-    pure $ Proj e' l'
-match' (Compound (Compound (Atom a: Operator ":": t):Operator "->": b)) = do
-    ttype <- matchType $ Compound t
-    bterm <- match' (Compound b)
-    pure $ Lambda (Just ttype) (Unbound.bind (Unbound.string2Name $ unpack a) bterm)
-match' (Compound (Atom a: Operator "->": b)) = do
-    bterm <- match' (Compound b)
-    pure $ Lambda Nothing (Unbound.bind (Unbound.string2Name $ unpack a) bterm)
-match' (Compound es) = traverse match' es <&> foldl1 Apply
-match' (Block es) = Record . flip Unbound.bind () . fromList <$> traverse (cons "=") es
+match' (Compound (Atom "type":es)) = matchType (Compound es)
+match' (Compound es) = 
+    case findOperator [] es of
+        Left _ -> traverse match' es <&> foldl1 Apply
+        Right (a, ":", b) -> do
+            a' <- match' $ Compound a
+            b' <- matchType $ Compound b
+            pure $ Ascribe a' b'
+        Right (a, ".", b) -> do
+            a' <- match' $ Compound a
+            b' <- match' $ Compound b
+            pure $ Proj a' b'
+        Right (a, "->", b) -> do
+            b' <- match' $ Compound b
+            foldrM lambda b' a
+        Right (a, o, b) -> do
+            a' <- match' $ Compound a
+            b' <- match' $ Compound b
+            let o' = Unbound.string2Name (unpack o)
+            pure $ Apply (Apply (Var o') a') b'
+    where
+        lambda a b = do
+            a' <- match' a
+            case a' of
+                Ascribe (Var x) t -> pure $ Lambda (Just t) (Unbound.bind x b)
+                Var x -> pure $ Lambda Nothing (Unbound.bind x b)
+                x -> throwError $ "patterns unsupported, must bind a variable or an annotated variable\n" ++ show x
 
-
-cons :: Text -> MExpr -> Unbound.FreshMT (Except String) Entry
-cons o expr =
-    case expr of
-        Compound (Atom "let": Atom x: Operator ":": bnds) -> do
-            let (t,rst) = span (/= Operator "=") bnds
-            case rst of
-                (Operator "=":e) -> do
-                    t' <- matchType $ Compound t
+match' (Block es) = Record . flip Unbound.bind () . fromList <$> traverse cons es
+    where
+        cons expr =
+            case expr of
+                Compound (Atom "let": Atom x: Operator ":": bnds) -> do
+                    let (t,rst) = span (/= Operator "=") bnds
+                    case rst of
+                        (Operator "=":e) -> do
+                            t' <- matchType $ Compound t
+                            e' <- match' (Compound e)
+                            pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed $ Ascribe e' t')
+                        _ -> throwError "didn't find equals in let"
+                Compound (Atom "let": Atom x: Operator "=": e) -> do
                     e' <- match' (Compound e)
-                    pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed $ Ascribe e' t')
-                _ -> throwError "didn't find equals in let"
-        Compound (Atom "let": Atom x: Operator o': e) | o == o' -> do
-            e' <- match' (Compound e)
-            pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed e')
-        Compound (Atom x: Operator o': e)  | o == o' -> do
-            e' <- match' $ Compound e
-            pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed e')
-        _ -> do
-            e' <- match' expr
-            pure $ Indexed (Unbound.Embed e')
+                    pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed e')
+                Compound (Atom x: Operator "=": e)  -> do
+                    e' <- match' $ Compound e
+                    pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed e')
+                _ -> do
+                    e' <- match' expr
+                    pure $ Indexed (Unbound.Embed e')
+
+findOperator :: [MExpr] -> [MExpr] -> Either [MExpr] ([MExpr], Text, [MExpr])
+findOperator x [] = Left x
+findOperator x (Operator o: ys) = Right (x, o, ys)
+findOperator x (y:ys) = findOperator (x ++ [y]) ys
+
 matchType :: MExpr -> Unbound.FreshMT (Except String) Term
 matchType (Atom "Type") = pure Type
 matchType (Atom "Unit") = pure $ Sigma (Unbound.bind Nil ())
@@ -110,21 +135,46 @@ matchType (Operator o) = pure . Var . Unbound.string2Name $ unpack o
 matchType (String _) = throwError "unimplemented"
 matchType (Number _) = throwError "unimplemented"
 matchType (Compound []) = pure $ Sigma (Unbound.bind Nil ())
-matchType (Compound [e, Operator ".", l]) = do
-    e' <- matchType e
-    l' <- match' l
-    pure $ Proj e' l'
-matchType (Compound (Compound (Atom a: Operator ":": t):Operator "->": u)) = do
-    ttype <- matchType $ Compound t
-    utype <- matchType $ Compound u
-    pure $ Pi ttype (Unbound.bind (Unbound.string2Name $ unpack a) utype)
-matchType (Compound (e:Operator "->": u)) = do
-    name <- match' e
-    fresh <- Unbound.fresh (Unbound.string2Name "_")
-    utype <- matchType $ Compound u
-    pure $ Pi name (Unbound.bind fresh utype)
-matchType (Compound es) = traverse matchType es <&> foldl1 Apply
-matchType (Block es) = Sigma . flip Unbound.bind () . fromList <$> traverse (cons ":") es
+matchType (Compound es) = 
+    case findOperator [] es of
+        Left _ -> traverse matchType es <&> foldl1 Apply
+        Right (a, ":", b) -> do
+            a' <- matchType $ Compound a
+            b' <- matchType $ Compound b
+            pure $ Ascribe a' b'
+        Right (a, ".", b) -> do
+            a' <- matchType $ Compound a
+            b' <- match' $ Compound b
+            pure $ Proj a' b'
+        Right (a, "->", b) -> do
+            b' <- matchType $ Compound b
+            foldrM piType b' a
+        Right (a, o, b) -> do
+            a' <- matchType $ Compound a
+            b' <- matchType $ Compound b
+            let o' = Unbound.string2Name (unpack o)
+            pure $ Apply (Apply (Var o') a') b'
+    where
+        piType a b = do
+            a' <- matchType a
+            case a' of
+                Ascribe (Var x) t -> pure $ Pi t (Unbound.bind x b)
+                t -> do
+                    x <- Unbound.fresh (Unbound.string2Name "_")
+                    pure $ Pi t (Unbound.bind x b)
+matchType (Block es) = Sigma . flip Unbound.bind () . fromList <$> traverse cons es
+    where
+        cons expr =
+            case expr of
+                Compound (Atom "let": Atom x: Operator ":": e) -> do
+                    e' <- matchType (Compound e)
+                    pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed e')
+                Compound (Atom x: Operator ":": e)  -> do
+                    e' <- matchType $ Compound e
+                    pure $ Named (Unbound.string2Name $ unpack x) (Unbound.Embed e')
+                _ -> do
+                    e' <- matchType expr
+                    pure $ Indexed (Unbound.Embed e')
 
 toMExpr :: (HasCallStack, Unbound.Fresh m) => Term -> m MExpr
 toMExpr Type = pure $ Atom "Type"

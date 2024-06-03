@@ -7,7 +7,6 @@ import qualified Unbound.Generics.LocallyNameless as Unbound
 import Control.Monad.Except
 import Eval (normalize)
 import Control.Monad.Reader
-import Debug.Trace (traceM)
 
 type TcMonad = Gamma
 infer :: Term -> TcMonad Type
@@ -51,27 +50,26 @@ infer e =
                 (Sigma tele, Var x) -> do
                     (r, ()) <- Unbound.unbind tele
                     let record = unfold 0 (toList r)
-                    case lookup x record of
+                    case lookup (Unbound.name2String x) record of
                         Just v -> pure v
-                        Nothing -> throwError "field not found in record"
+                        Nothing -> throwError $ "field: " ++ show x ++ " not found in record\n" ++ show record
                 (_, Var _) -> throwError "Attempted projection to something not a record"
                 _ -> throwError "Projection must be to a label"
         Ascribe expr t -> do
-            traceM "ascribe"
             check t Type
             check expr t
             pure t
     where
-        unfold :: Int -> [Entry] -> [(Name, Term)]
+        unfold :: Int -> [Entry] -> [(String, Term)]
         unfold _ [] = []
         unfold i (x:xs) =
             case x of
                 Indexed (Unbound.Embed e) ->
                     let end = unfold (i+1) xs
-                    in (Unbound.string2Name $ show i,  e):end
+                    in (show i,  e):end
                 Named n (Unbound.Embed e) ->
                     let end = unfold (i+1) xs
-                    in (n, e): end
+                    in (Unbound.name2String n, e): end
 check :: Term -> Type -> TcMonad ()
 check e ty = do
     ty' <- normalize False ty
@@ -79,7 +77,7 @@ check e ty = do
         (Lambda _ bndl, Pi t bndp) -> do
             (x, b, _, u) <- maybe (throwError "mismatched binding") pure =<< Unbound.unbind2 bndl bndp
             local (Context.addId x t) $ check b u
-        (Lambda _ _, _) -> throwError "expected function type"
+        (Lambda _ _, _) -> throwError $ "expected function type, got: " ++ show ty' ++ " against " ++ show e
         _ -> do
             t1 <- infer e
             if Unbound.aeq t1 ty'

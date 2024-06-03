@@ -49,7 +49,7 @@ lit =
 
 atom :: Parser MExpr
 atom = Atom . pack <$> lexeme (some p)
-    where p = satisfy (\c -> not (c `elem` (";[]{}()"::String) || Char.isSpace c))
+    where p = satisfy (\c -> not (c `elem` (";[]{}().:"::String) || Char.isSpace c))
 
 operator :: Parser MExpr
 operator = Operator . pack <$> lexeme (some p)

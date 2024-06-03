@@ -1,5 +1,37 @@
-let id : (x : Type) -> x -> x = x -> y -> y
+let id : (x : Type) -> x -> x = x y -> y
 
-let idi = (x : Type) -> (y : x) -> y
+let idi = (x : Type) (y : x) -> y
 
-let idid : ((x : Type) -> x -> x) = id (type ((x : Type) -> x -> x)) id
+let idid : ((x : Type) x -> x) = id (type ((x : Type) x -> x)) id
+
+let compose 
+    : (A : Type) (B : Type) (C : Type) (B -> C) (A -> B) A -> C 
+    = A B C f g x -> f (g x)
+
+let idT : Type = type (x : Type) x -> x
+
+let selfapp : idT -> idT = ((x : idT -> idT) -> x) (x -> x)
+
+// church booleans
+let true = (A : Type) (x : A) (y : A) -> x
+let false = (A : Type) (x : A) (y : A) -> y
+let cond 
+    : ((A : Type) A A -> A) (x : Type) x x -> x
+    = b -> b
+
+// void type 
+let void : Type = type (x : Type) -> x
+
+// unit types
+let unitT : Type = type (x : Type) x -> x
+
+let unitS : Type = type []
+
+//sigma types
+let double 
+    : (A : Type) (x : A) -> { A; A }
+    = A x -> [x; x] 
+
+let getX 
+    : (A : Type) (B : A -> Type) { x : A ; B x } -> A
+    = A B p -> p.x

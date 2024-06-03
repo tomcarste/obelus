@@ -14,7 +14,7 @@ import Control.Monad.Reader
 runFile name = do
     contents <- T.readFile name
     let ast = parse contents >>= match . Block
-    print $ show ast
+    print ast
     case ast of
         Left err -> print err
         Right e -> do
