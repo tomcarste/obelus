@@ -13,8 +13,7 @@ import Control.Monad.Reader
 
 runFile name = do
     contents <- T.readFile name
-    let ast = parse contents >>= match . Block
-    print ast
+    let ast = parse contents >>= match
     case ast of
         Left err -> print err
         Right e -> do

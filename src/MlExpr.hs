@@ -73,10 +73,11 @@ expr = convert <$> ps
     convert [x] = x
     convert xs = Compound xs
 
-parse :: Text -> Either String [MExpr]
+parse :: Text -> Either String MExpr
 parse str =
     case runParser (many (L.nonIndented scn expr) <* eof) "" str of
-        Right e -> Right e
+        Right [e@(Block _)] -> Right e
+        Right es -> Right (Block es)
         Left err -> Left (errorBundlePretty err)
 
 pretty :: MExpr -> String

@@ -19,7 +19,7 @@ repl = void $ runGamma go
             case l of
                 Nothing -> go
                 Just s ->
-                    case parse (T.pack s) >>= match . Block  of
+                    case parse (T.pack s) >>= match  of
                         Right es -> do
                             ctx' <- eval es
                             local (const ctx') go
