@@ -9,6 +9,7 @@ import Control.Monad.Except
 import Eval (normalize)
 import Control.Monad.Reader
 import Data.Text hiding (zip)
+import Safe (atMay)
 
 infer :: Nameless -> Gamma (Nameless, Type Local)
 infer e = do
@@ -20,6 +21,10 @@ infer e = do
             Var (Free x) ->
                 maybe (throwError ("not found: " <> pack (show x))) (pure . (Var (Free x),)) =<< asks (lookupId x)
             Type -> pure (Type, Type)
+            BoolT -> pure (BoolT, Type)
+            IntT -> pure (IntT, Type)
+            Bool b -> pure (Bool b, BoolT)
+            Int i -> pure (Int i, IntT)
             Apply l r -> do
                 (l', ty1) <- infer l
                 ty <- normalize False ty1
@@ -28,6 +33,11 @@ infer e = do
                         r' <- check r t
                         pure (Apply l' r', open r' u)
                     _ -> throwError $ "expected function got: " <> pack (show ty)
+            If a b c -> do
+                a' <- check a BoolT
+                (b', bt) <- infer b
+                c' <- check c bt
+                pure (If a' b' c', bt)
             Lambda n (Just t) b -> do
                 t' <- check t Type
                 n' <- fresh n
@@ -55,12 +65,18 @@ infer e = do
                         case lookup x record of
                             Just v -> pure (Proj e' l', v)
                             Nothing -> throwError $ "field: " <> pack (show x) <> " not found in record\n" <> pack (show record)
+                    (Sigma r, Int i) -> do
+                        case atMay r i of
+                            Nothing -> throwError "index out of bounds"
+                            Just (Indexed v) -> pure (Proj e' l', v)
+                            Just (Named _ v) -> pure (Proj e' l', v)
                     (_, Var _) -> throwError $ "Attempted projection to something not a record" <> pack (show t)
                     _ -> throwError "Projection must be to a label"
             Ascribe expr t -> do
                 t' <- check t Type
                 e' <- check expr t'
                 pure (Ascribe e' t', t')
+            Undefined -> throwError "tried to infer the type of undefined"
         unfold :: Int -> [Entry Local] -> [(Text, Nameless)]
         unfold _ [] = []
         unfold i (x:xs) =
@@ -92,9 +108,15 @@ inferRecord (x:xs) =
             (e', t) <- infer e
             (xs', ts) <- inferRecord xs
             pure (Indexed e': xs', Indexed t:ts)
-        Named n e -> do
-            (e', t) <- infer e
+        Named n (Ascribe e t) -> do
             n' <- fresh n
+            t' <- local (Context.addId n' Undefined) $ check t Type
+            e' <- local (Context.addId n' t') $ check e t'
+            (xs', ts) <- local (Context.addDef n' e' . Context.addId n' t') $ inferRecord xs
+            pure (Named n e':xs', Named n t':ts)
+        Named n e -> do
+            n' <- fresh n
+            (e', t) <- local (Context.addId n' Undefined) $ infer e
             (xs', ts) <- local (Context.addDef n' e' . Context.addId n' t) $ inferRecord xs
             pure (Named n e':xs', Named n t:ts)
 
@@ -108,7 +130,7 @@ checkSigma (x:xs) =
             pure (Indexed e':xs')
         Named n e -> do
             n' <- fresh n
-            e' <- check e Type
+            e' <- local (Context.addId n' Undefined) $ check e Type
             xs' <- local (Context.addId n' e') $ checkSigma xs
             pure (Named n e': xs')
 
@@ -121,9 +143,14 @@ equate e1 e2 =
             n2 <- normalize False e2
             case (n1, n2) of
                 (Type, Type) -> pure ()
+                (IntT, IntT) -> pure ()
+                (BoolT, BoolT) -> pure ()
+                (Int i, Int j) | i == j -> pure ()
+                (Bool a, Bool b) | a == b -> pure ()
                 (Var x1, Var x2) | x1 == x2 -> pure ()
                 (Apply l1 r1, Apply l2 r2) -> equate l1 l2 >> equate r1 r2
                 (Proj e1 l1, Proj e2 l2) -> equate e1 e2 >> equate l1 l2
+                (If a1 b1 c1, If a2 b2 c2) -> equate a1 a2 >> equate b1 b2 >> equate c1 c2
                 (Lambda _ _ b1, Lambda _ _ b2) -> equate b1 b2
                 (Pi _ t1 u1, Pi _ t2 u2) -> equate t1 t2 >> equate u1 u2
                 (Record r1, Record r2) -> mapM_ equateRow (zip r1 r2)

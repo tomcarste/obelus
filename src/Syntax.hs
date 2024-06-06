@@ -8,6 +8,7 @@ import Data.Foldable (foldrM)
 import Data.Text (Text, pack)
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Scientific
 
 type Atom = (Text, Int)
 data Local
@@ -26,6 +27,12 @@ data Term a
     | Sigma [Entry a]
     | Proj (Term a) (Term a)
     | Ascribe (Term a) (Type a)
+    | Bool Bool
+    | BoolT
+    | If (Term a) (Term a) (Term a)
+    | Int Int
+    | IntT
+    | Undefined
     deriving (Show, Eq)
 
 data Entry a
@@ -79,7 +86,7 @@ open a = go 0
         deepen lvl (Indexed x: xs) =
             Indexed (go lvl x):deepen lvl xs
         deepen lvl (Named n x:xs) =
-            Named n (go lvl x): deepen (lvl+1) xs
+            Named n (go (lvl+1) x): deepen (lvl+1) xs
 
 bind :: Atom -> Term Local -> Term Local
 bind a = go 0
@@ -99,16 +106,28 @@ bind a = go 0
         deepen lvl (Indexed x: xs) =
             Indexed (go lvl x):deepen lvl xs
         deepen lvl (Named n x:xs) =
-            Named n (go lvl x): deepen (lvl+1) xs
+            Named n (go (lvl+1) x): deepen (lvl+1) xs
 
 match :: MExpr -> Either Text Named
 match (Atom "Type") = pure Type
+match (Atom "False") = pure $ Bool False
+match (Atom "True") = pure $ Bool True
+match (Atom "Bool") = pure BoolT
+match (Atom "Int") = pure IntT
 match (Atom "Unit") = pure $ Sigma []
 match (Atom a) = pure $ Var a
 match (Operator o) = pure $ Var o
 match (String _) = Left "unimplemented"
-match (Number _) = Left "unimplemented"
+match (Number n) =
+    case toBoundedInteger n of
+        Just i -> Right $ Int i
+        Nothing -> Left "not an integer"
 match (Compound []) = pure $ Record []
+match (Compound [Atom "if", a, b, c]) = do
+    a' <- match a
+    b' <- match b
+    c' <- match c
+    pure $ If a' b' c'
 match (Compound (Atom "type":es)) = matchType (Compound es)
 match (Compound es) =
     case findOperator [] es of
@@ -165,12 +184,24 @@ findOperator x (y:ys) = findOperator (x ++ [y]) ys
 
 matchType :: MExpr -> Either Text Named
 matchType (Atom "Type") = pure Type
+matchType (Atom "False") = pure $ Bool False
+matchType (Atom "True") = pure $ Bool True
+matchType (Atom "Bool") = pure BoolT
+matchType (Atom "Int") = pure IntT
 matchType (Atom "Unit") = pure $ Sigma []
 matchType (Atom a) = pure $ Var a
 matchType (Operator o) = pure $ Var o
 matchType (String _) = Left "unimplemented"
-matchType (Number _) = Left "unimplemented"
+matchType (Number n) =
+    case toBoundedInteger n of
+        Just i -> Right $ Int i
+        Nothing -> Left "not an integer"
 matchType (Compound []) = pure $ Sigma []
+matchType (Compound [Atom "if", a, b, c]) = do
+    a' <- match a
+    b' <- match b
+    c' <- match c
+    pure $ If a' b' c'
 matchType (Compound es) =
     case findOperator [] es of
         Left _ -> traverse matchType es <&> foldl1 Apply
@@ -212,7 +243,11 @@ matchType (Block es) = Sigma <$> traverse cons es
 
 toMExpr :: Named -> MExpr
 toMExpr Type = Atom "Type"
+toMExpr BoolT = Atom "Bool"
+toMExpr IntT = Atom "Int"
 toMExpr (Var n) = Atom n
+toMExpr (Bool b) = Atom (pack (show b))
+toMExpr (Int i) = Number (fromIntegral i)
 toMExpr (Apply l r) =
     let lm = toMExpr l
         rm = toMExpr r
@@ -241,6 +276,7 @@ toMExpr (Pi n t u) =
             , Operator "->"
             , uexpr
             ]
+toMExpr (If a b c) = Compound [Atom "if", toMExpr a, toMExpr b, toMExpr c]
 toMExpr (Record tele) = Block $ map (build "=") tele
 toMExpr (Sigma tele) = Block $ map (build ":") tele
 toMExpr (Ascribe e t) =
@@ -251,6 +287,7 @@ toMExpr (Proj t l) =
     let e = toMExpr t
         l' = toMExpr l
     in Compound [e, Operator ".", l']
+toMExpr Undefined = Atom "void"
 
 build :: Text -> Entry Text -> MExpr
 build _ (Indexed e) = toMExpr e

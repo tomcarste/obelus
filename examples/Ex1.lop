@@ -32,8 +32,17 @@ let double : (A : Type) (x : A) -> { A; A } = A x -> [x; x]
 
 let getX : (A : Type) (B : Type) { x : A ; B  } -> A = A B p -> p.x
 
-let example = double idT id
+let example = double Int 1
 
-let exampl2 = getX idT idT [ x = id; id]
+let exampl2 = (getX (type [Int;Int]) (type [Int;Int]) [ x = [1; 2]; [3;4]]).0
 
-double
+// prelude operations on boolean values
+
+let or : Bool -> Bool -> Bool = b1 b2 -> if b1 True b2
+
+let not : Bool -> Bool = b -> if b False True
+
+let and : Bool -> Bool -> Bool = b1 b2 -> if b1 b2 False
+
+let eq_bool : Bool -> Bool -> Bool =  b1 b2 -> 
+  if b1 b2 (not b2)  
