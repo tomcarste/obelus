@@ -59,7 +59,7 @@ library
     import:           warnings
 
     -- Modules exported by the library.
-    exposed-modules:  MlExpr, Syntax, Context, Eval, Typecheck, Repl
+    exposed-modules:  MlExpr, Syntax, Context, Desugar, Eval, Typecheck, Repl
 
     -- Modules included in this library but not exported.
     -- other-modules:
@@ -70,12 +70,13 @@ library
     -- Other library packages from which modules are imported.
     build-depends:    
         base,
+        containers,
         megaparsec,
         mtl,
         haskeline,
+        safe,
         scientific,
-        text,
-        unbound-generics
+        text
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -109,8 +110,7 @@ test-suite mexpr-test
     build-depends:
         base,
         mexpr,
-        hspec,
-        unbound-generics
+        hspec
 
 executable obelus
     default-language: GHC2021
@@ -120,5 +120,4 @@ executable obelus
         base,
         mexpr,
         mtl,
-        text,
-        unbound-generics
+        text

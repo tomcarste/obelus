@@ -2,20 +2,19 @@
 module Eval where
 import Context
 import Syntax
-import qualified Unbound.Generics.LocallyNameless as Unbound
 import Control.Monad.Reader
+import Debug.Trace (traceM)
 
-normalize :: Bool -> Term -> Gamma Term
+normalize :: Bool -> Nameless -> Gamma Nameless
 normalize cbv = \case
-  Var x ->
-    maybe (pure $ Var x) (normalize cbv) =<< asks (lookupDef x)
+  Var (Free x) ->
+    maybe (pure $ Var (Free x)) (normalize cbv) =<< asks (lookupDef x)
   Apply l r -> do
       e1 <- normalize cbv l
       e2 <- if cbv then normalize cbv r else pure r
-
       case e1 of
-        Lambda _ bound ->
-          let b' = Unbound.instantiate bound [e2] in
+        Lambda _ _ b ->
+          let b' = open e2 b in
           normalize cbv b'
         _ -> pure $ Apply e1 e2
   Proj a b -> do
@@ -23,34 +22,38 @@ normalize cbv = \case
     a' <- normalize cbv a
     let deflt = Proj a' b'
     case (a',b') of
-      (Record r, Var x) -> do
-        (tele, ()) <- Unbound.unbind r
-        normalizeTele deflt tele x
-      (Sigma r, Var x) -> do
-        (tele, ()) <- Unbound.unbind r
-        normalizeTele deflt tele x
+      (Record r, Var (Free (x,_))) -> do
+        res <- search x r
+        case res of
+          Just v -> pure v
+          Nothing -> pure deflt
+      (Sigma r, Var (Free (x,_))) -> do
+        res <- search x r
+        case res of
+          Just v -> pure v
+          Nothing -> pure deflt
       _ -> pure deflt
   Ascribe e _ -> normalize cbv e
+  Record r ->
+    Record <$> normEntries r
   e -> pure e
   where
-    normalizeTele deflt r x = do
-      ctx <- ask
-      let unfolded = unfold ctx 0 (toList r)
-      record <- if cbv then traverse normalizeFold unfolded else pure unfolded
-      case lookup x record of
-        Just (ctx', v) -> if cbv then pure v else local (const ctx') $ normalize cbv v
-        Nothing -> pure deflt
-
-    normalizeFold (n, (ctx', e)) = do
-      e' <- local (const ctx') $ normalize cbv e
-      pure (n, (ctx', e'))
-    unfold :: Context -> Int -> [Entry] -> [(Name, (Context, Term))]
-    unfold _ _ [] = []
-    unfold ctx0 i (x:xs) =
-      case x of
-        Indexed (Unbound.Embed e) ->
-          let end = unfold ctx0 (i+1) xs
-          in (Unbound.string2Name $ show i, (ctx0, e)):end
-        Named n (Unbound.Embed e) ->
-          let end = unfold (Context.addDef n e ctx0) (i+1) xs
-          in (n, (ctx0, e)): end
+    search _ [] = pure Nothing
+    search x (Indexed _: xs) = search x xs
+    search x (Named n e: xs) =
+      if x == n
+        then pure $ Just e
+        else do
+          n' <- fresh n
+          e' <- local (Context.addDef n' e) $ normalize cbv (open (Var (Free n')) e)
+          local (Context.addDef n' e') $ search x xs
+    normEntries [] = pure []
+    normEntries (Indexed x:xs) = do
+      x' <- normalize cbv x
+      xs' <- normEntries xs
+      pure (Indexed x':xs')
+    normEntries (Named n x:xs) = do
+      x' <- normalize cbv x
+      n' <- fresh n
+      xs' <- local (Context.addDef n' x') $ normEntries xs
+      pure (Named n x':xs')

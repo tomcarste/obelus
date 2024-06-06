@@ -1,11 +1,11 @@
 module Repl where
 
 import Syntax
+import Desugar
 import Context
 import Eval
 import Typecheck
 import MlExpr
-import qualified Unbound.Generics.LocallyNameless as Unbound
 import qualified Data.Text as T
 import System.Console.Haskeline
 import Control.Monad.Reader
@@ -21,29 +21,28 @@ repl = void $ runGamma go
                 Just s ->
                     case parse (T.pack s) >>= match  of
                         Right es -> do
-                            ctx' <- eval es
+                            bnds <- toNameless es
+                            ctx' <- eval bnds
                             local (const ctx') go
                             
                         Left err -> do
                             liftIO $ print err
                             go
-        eval :: Term -> Gamma Context
         eval e = do
             ctx <- ask
-            t <- infer e
-            e' <- normalize True e
+            (e1, t) <- infer e
+            e' <- normalize True e1
             case (t, e') of
-                (Sigma teleTy, v@(Record tele)) -> do
-                    (rt, ()) <- Unbound.unbind teleTy
-                    (r, ()) <- Unbound.unbind tele
+                (Sigma rt, v@(Record r)) -> do
                     liftIO $ putStrLn ("signature : " ++ show t ++ "\nmodule = " ++ show v)
-                    foldM addRecord2 ctx (zip (toList rt) (toList r))
+                    foldM addRecord2 ctx (zip rt r)
                 (_, v) -> do
                     liftIO $ putStrLn ("type : " ++ show t ++ "\nvalue = " ++ show v)
                     pure ctx
 
 
-addRecord2 :: Applicative f => Context -> (Entry, Entry) -> f Context
-addRecord2 ctx (Named n (Unbound.Embed e), Named _ (Unbound.Embed t)) = do
-    pure $ Context.addId n t (Context.addDef n e ctx)
+addRecord2 :: Context -> (Entry Local, Entry Local) -> Gamma Context
+addRecord2 ctx (Named n e, Named _  t) = do
+    n' <- fresh n
+    pure $ Context.addId n' t (Context.addDef n' e ctx)
 addRecord2 ctx _ = pure ctx

@@ -33,5 +33,9 @@ let double
     = A x -> [x; x] 
 
 let getX 
-    : (A : Type) (B : A -> Type) { x : A ; B x } -> A
+    : (A : Type) (B : Type) { x : A ; B  } -> A
     = A B p -> p.x
+
+let example = double idT id
+
+let exampl2 = getX idT idT [ x = id; id]
