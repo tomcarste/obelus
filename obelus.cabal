@@ -11,7 +11,7 @@ cabal-version:      3.0
 --   http://haskell.org/cabal/users-guide/
 --
 -- The name of the package.
-name:               mexpr
+name:               obelus
 
 -- The package version.
 -- See the Haskell package versioning policy (PVP) for standards
@@ -84,7 +84,7 @@ library
     -- Base language which the package is written in.
     default-language: GHC2021
 
-test-suite mexpr-test
+test-suite obelus-test
     -- Import common warning flags.
     import:           warnings
 
@@ -109,7 +109,7 @@ test-suite mexpr-test
     -- Test dependencies.
     build-depends:
         base,
-        mexpr,
+        obelus,
         hspec
 
 executable obelus
@@ -118,6 +118,6 @@ executable obelus
     main-is: Main.hs
     build-depends:
         base,
-        mexpr,
+        obelus,
         mtl,
         text

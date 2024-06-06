@@ -262,4 +262,5 @@ build o (Named n e) =
     let e' = toMExpr e
     in Compound [Atom n, Operator o, e']
 
+prettySyntax :: Named -> String
 prettySyntax = pretty . toMExpr

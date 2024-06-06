@@ -7,8 +7,10 @@ import Eval
 import Typecheck
 import MlExpr
 import qualified Data.Text as T
+import qualified Data.Map as Map
 import System.Console.Haskeline
 import Control.Monad.Reader
+import Control.Monad.Except (MonadError(catchError))
 
 repl :: IO ()
 repl = void $ runGamma go
@@ -18,26 +20,33 @@ repl = void $ runGamma go
             l <- runInputT defaultSettings $ getInputLine "%"
             case l of
                 Nothing -> go
+                Just ":q" -> pure ()
                 Just s ->
                     case parse (T.pack s) >>= match  of
                         Right es -> do
-                            bnds <- toNameless es
-                            ctx' <- eval bnds
-                            local (const ctx') go
-                            
+                            catchError (do
+                                ctx <- ask
+                                bnds <- toNamelessWith (Map.fromList (zip (fmap (fst . fst) (defs ctx)) [0..])) es
+                                ctx' <- eval bnds
+                                local (const ctx') go
+                                ) (\ e -> liftIO (print e) >> go)
+
                         Left err -> do
                             liftIO $ print err
                             go
         eval e = do
             ctx <- ask
-            (e1, t) <- infer e
-            e' <- normalize True e1
+            (_, t) <- infer e
+            e' <- normalize True e
+            t' <- toNamed t
+            e1 <- toNamed e'
             case (t, e') of
-                (Sigma rt, v@(Record r)) -> do
-                    liftIO $ putStrLn ("signature : " ++ show t ++ "\nmodule = " ++ show v)
+                (Sigma rt, Record r) -> do
+
+                    liftIO $ putStrLn ("signature : " ++ prettySyntax t' ++ "\nmodule = " ++ prettySyntax e1)
                     foldM addRecord2 ctx (zip rt r)
-                (_, v) -> do
-                    liftIO $ putStrLn ("type : " ++ show t ++ "\nvalue = " ++ show v)
+                _ -> do
+                    liftIO $ putStrLn ("type : " ++ show t' ++ "\nvalue = " ++ show e1)
                     pure ctx
 
 

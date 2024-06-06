@@ -29,11 +29,11 @@ runFile name = do
                     putStrLn ("type : " ++ prettySyntax t ++ "\nvalue = " ++ prettySyntax v)
     where
         eval e = do
-            (e1, t) <- infer e
-            e' <- normalize True e1
-            e1' <- toNamed e'
+            (_, t) <- infer e
+            e' <- normalize True e
+            e'' <- toNamed e'
             t' <- toNamed t
-            pure (t',e1')
+            pure (t',e'')
 main = do
     args <- getArgs
     forM_ args runFile

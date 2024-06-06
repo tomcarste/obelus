@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 module Typecheck where
 
 import Context
@@ -8,7 +9,6 @@ import Control.Monad.Except
 import Eval (normalize)
 import Control.Monad.Reader
 import Data.Text hiding (zip)
-import Debug.Trace (traceM)
 
 infer :: Nameless -> Gamma (Nameless, Type Local)
 infer e = do
@@ -55,7 +55,7 @@ infer e = do
                         case lookup x record of
                             Just v -> pure (Proj e' l', v)
                             Nothing -> throwError $ "field: " <> pack (show x) <> " not found in record\n" <> pack (show record)
-                    (_, Var _) -> throwError "Attempted projection to something not a record"
+                    (_, Var _) -> throwError $ "Attempted projection to something not a record" <> pack (show t)
                     _ -> throwError "Projection must be to a label"
             Ascribe expr t -> do
                 t' <- check t Type

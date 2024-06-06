@@ -3,12 +3,12 @@ module Eval where
 import Context
 import Syntax
 import Control.Monad.Reader
-import Debug.Trace (traceM)
 
 normalize :: Bool -> Nameless -> Gamma Nameless
 normalize cbv = \case
-  Var (Free x) ->
-    maybe (pure $ Var (Free x)) (normalize cbv) =<< asks (lookupDef x)
+  Var (Free x) -> do
+    v <- asks (lookupDef x)
+    maybe (do {ctx <- ask; liftIO (print ctx); pure $ Var (Free x)}) (normalize cbv) v
   Apply l r -> do
       e1 <- normalize cbv l
       e2 <- if cbv then normalize cbv r else pure r
@@ -55,5 +55,6 @@ normalize cbv = \case
     normEntries (Named n x:xs) = do
       x' <- normalize cbv x
       n' <- fresh n
-      xs' <- local (Context.addDef n' x') $ normEntries xs
+      let (Record r) = open (Var (Free n')) (Record xs)
+      xs' <- local (Context.addDef n' x') $ normEntries r
       pure (Named n x':xs')
