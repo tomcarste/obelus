@@ -32,12 +32,12 @@ data Term a
     | If (Term a) (Term a) (Term a)
     | Int Int
     | IntT
-    | Undefined
     deriving (Show, Eq)
 
 data Entry a
     = Indexed (Term a)
     | Named Text (Term a)
+    | LetR Text (Type a) (Term a)
     deriving (Show, Eq)
 
 type Named = Term Text
@@ -86,7 +86,9 @@ open a = go 0
         deepen lvl (Indexed x: xs) =
             Indexed (go lvl x):deepen lvl xs
         deepen lvl (Named n x:xs) =
-            Named n (go (lvl+1) x): deepen (lvl+1) xs
+            Named n (go lvl x): deepen (lvl+1) xs
+        deepen lvl (LetR n x t:xs) =
+            LetR n (go (lvl+1) x) (go lvl t): deepen (lvl+1) xs
 
 bind :: Atom -> Term Local -> Term Local
 bind a = go 0
@@ -106,7 +108,9 @@ bind a = go 0
         deepen lvl (Indexed x: xs) =
             Indexed (go lvl x):deepen lvl xs
         deepen lvl (Named n x:xs) =
-            Named n (go (lvl+1) x): deepen (lvl+1) xs
+            Named n (go lvl x): deepen (lvl+1) xs
+        deepen lvl (LetR n x t:xs) =
+            LetR n (go (lvl+1) x) (go lvl t): deepen (lvl+1) xs
 
 match :: MExpr -> Either Text Named
 match (Atom "Type") = pure Type
@@ -165,7 +169,7 @@ match (Block es) = Record <$> traverse cons es
                         (Operator "=":e) -> do
                             t' <- matchType $ Compound t
                             e' <- match (Compound e)
-                            pure $ Named x (Ascribe e' t')
+                            pure $ LetR x e' t'
                         _ -> Left "didn't find equals in let"
                 Compound (Atom "let": Atom x: Operator "=": e) -> do
                     e' <- match (Compound e)
@@ -270,7 +274,7 @@ toMExpr (Lambda n _ b) =
 toMExpr (Pi n t u) =
     let texpr = toMExpr t
         uexpr = toMExpr u
-        p = if n == "_" then texpr else Compound [Atom n, Operator ":", texpr]
+        p =  Compound [Atom n, Operator ":", texpr]
     in Compound
             [ p
             , Operator "->"
@@ -287,11 +291,10 @@ toMExpr (Proj t l) =
     let e = toMExpr t
         l' = toMExpr l
     in Compound [e, Operator ".", l']
-toMExpr Undefined = Atom "void"
 
 build :: Text -> Entry Text -> MExpr
 build _ (Indexed e) = toMExpr e
-build _ (Named n (Ascribe e t)) =
+build _ (LetR n e t) =
     let e' = toMExpr e
         t' = toMExpr t
     in Compound [Atom "let", Atom n, Operator ":", t', Operator "=", e']

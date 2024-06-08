@@ -88,4 +88,12 @@ pretty (String s) = unpack s
 pretty (Compound [e]) = pretty e
 pretty (Compound es) =  "(" ++ unwords (fmap pretty es) ++ ")"
 pretty (Block es) =
-    "[\n\t" ++ intercalate ";\n\t" (fmap pretty es) ++ "\n]"
+    "[\n\t" ++ intercalate ";\n\t" (fmap pretty' es) ++ "\n]"
+    where 
+        pretty' (Block es) = "[ " ++ intercalate "; " (fmap pretty' es) ++ " ]"
+        pretty' (Atom a) = unpack a
+        pretty' (Operator o) = unpack o
+        pretty' (Number s) = show s
+        pretty' (String s) = unpack s
+        pretty' (Compound [e]) = pretty' e
+        pretty' (Compound es) =  "(" ++ unwords (fmap pretty' es) ++ ")"

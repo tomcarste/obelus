@@ -46,9 +46,14 @@ toNamelessWith env = \case
             xs' <- deepen env xs
             pure $ Indexed x' : xs'
         deepen env (Named n x : xs) = do
-            x' <- toNamelessWith (extend n env) x
+            x' <- toNamelessWith env x
             xs' <- deepen (extend n env) xs
             pure $ Named n x' : xs'
+        deepen env (LetR n x t: xs) = do
+            x' <- toNamelessWith (extend n env) x
+            t' <- toNamelessWith env t
+            xs' <- deepen (extend n env) xs
+            pure $ LetR n x' t': xs'
         extend n = Map.insert n 0 . Map.map (+ 1)
 
 toNamed :: Nameless -> Gamma Named
@@ -89,7 +94,12 @@ toNamed e =
             xs' <- deepen env xs
             pure $ Indexed x' : xs'
         deepen env (Named n x : xs) = do
-            x' <- go (extend n env) x
+            x' <- go env x
             xs' <- deepen (extend n env) xs
             pure $ Named n x' : xs'
+        deepen env (LetR n x t: xs) = do
+            x' <- go (extend n env) x
+            t' <- go env t
+            xs' <- deepen (extend n env) xs
+            pure $ LetR n x' t': xs'
         extend n = Map.insert 0 n . Map.mapKeysMonotonic (+ 1)

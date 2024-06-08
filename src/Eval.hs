@@ -60,6 +60,16 @@ normalize cbv = \case
     search x (Named n e: xs) =
       if x == n
         then do
+          e' <- normalize cbv e
+          pure $ Just e'
+        else do
+          n' <- fresh n
+          e' <-  normalize cbv e
+          let (Record r) = open (Var (Free n')) (Record xs)
+          local (Context.addDef n' e') $ search x r
+    search x (LetR n e _: xs) =
+      if x == n
+        then do
           n' <- fresh n
           let x' = open (Var (Free n')) e
           e' <- local (Context.addDef n' x') $ normalize cbv x'
@@ -72,12 +82,20 @@ normalize cbv = \case
     reach _ [] = pure Nothing
     reach 0 (Indexed e: _) = pure $ Just e
     reach x (Indexed _: xs) = reach (x-1) xs
-    reach 0 (Named n e: _) = do
+    reach 0 (Named _ e: _) = do
+          e' <-  normalize cbv e
+          pure $ Just e'
+    reach x (Named n e: xs) = do
+          n' <- fresh n
+          e' <- normalize cbv e
+          let (Record r) = open (Var (Free n')) (Record xs)
+          local (Context.addDef n' e') $ reach (x-1) r
+    reach 0 (LetR n e _: _) = do
           n' <- fresh n
           let x' = open (Var (Free n')) e
           e' <- local (Context.addDef n' x') $ normalize cbv x'
           pure $ Just e'
-    reach x (Named n e: xs) = do
+    reach x (LetR n e _: xs) = do
           n' <- fresh n
           e' <- local (Context.addDef n' e) $ normalize cbv (open (Var (Free n')) e)
           let (Record r) = open (Var (Free n')) (Record xs)
@@ -89,11 +107,17 @@ normalize cbv = \case
       pure (Indexed x':xs')
     normEntries (Named n x:xs) = do
       n' <- fresh n
+      x'' <- normalize cbv x
+      let (Record r) = open (Var (Free n')) (Record xs)
+      xs' <- local (Context.addDef n' x'') $ normEntries r
+      pure (Named n x'':xs')
+    normEntries (LetR n x t:xs) = do
+      n' <- fresh n
       let x' = open (Var (Free n')) x
       x'' <- local (Context.addDef n' x') $ normalize cbv x'
       let (Record r) = open (Var (Free n')) (Record xs)
       xs' <- local (Context.addDef n' x'') $ normEntries r
-      pure (Named n x'':xs')
+      pure (LetR n x'' t:xs')
 
 -- used to reduce modules to whnf
 evaluate = \case
@@ -107,8 +131,14 @@ evaluate = \case
       pure (Indexed x':xs')
     normEntries (Named n x:xs) = do
       n' <- fresh n
+      x'' <- normalize False x
+      let (Record r) = open (Var (Free n')) (Record xs)
+      xs' <- local (Context.addDef n' x'') $ normEntries r
+      pure (Named n x'':xs')
+    normEntries (LetR n x t:xs) = do
+      n' <- fresh n
       let x' = open (Var (Free n')) x
       x'' <- local (Context.addDef n' x') $ normalize False x'
       let (Record r) = open (Var (Free n')) (Record xs)
       xs' <- local (Context.addDef n' x'') $ normEntries r
-      pure (Named n x'':xs')
+      pure (LetR n x'' t:xs')

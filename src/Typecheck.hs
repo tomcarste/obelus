@@ -10,6 +10,7 @@ import Eval (normalize)
 import Control.Monad.Reader
 import Data.Text hiding (zip)
 import Safe (atMay)
+import Debug.Trace (traceM)
 
 infer :: Nameless -> Gamma (Nameless, Type Local)
 infer e = do
@@ -31,6 +32,9 @@ infer e = do
                 case ty of
                     Pi _ t u -> do
                         r' <- check r t
+                        traceM $ "applying " ++ show l ++ " as " ++ show l' ++ " : " ++ show ty
+                        traceM $ "to " ++ show r ++ " as " ++ show r' ++ " : " ++ show t
+                        traceM $ "into " ++ show u
                         pure (Apply l' r', open r' u)
                     _ -> throwError $ "expected function got: " <> pack (show ty)
             If a b c -> do
@@ -70,13 +74,13 @@ infer e = do
                             Nothing -> throwError "index out of bounds"
                             Just (Indexed v) -> pure (Proj e' l', v)
                             Just (Named _ v) -> pure (Proj e' l', v)
+                            Just (LetR {}) -> throwError "recursive let not allowed in sigma type"
                     (_, Var _) -> throwError $ "Attempted projection to something not a record" <> pack (show t)
                     _ -> throwError "Projection must be to a label"
             Ascribe expr t -> do
                 t' <- check t Type
                 e' <- check expr t'
                 pure (Ascribe e' t', t')
-            Undefined -> throwError "tried to infer the type of undefined"
         unfold :: Int -> [Entry Local] -> [(Text, Nameless)]
         unfold _ [] = []
         unfold i (x:xs) =
@@ -87,14 +91,16 @@ infer e = do
                 Named n e ->
                     let end = unfold (i+1) xs
                     in (n, e): end
+                LetR {} -> []
 check :: Nameless -> Type Local -> Gamma Nameless
 check e ty = do
     ty' <- normalize False ty
     case (e, ty') of
-        (Lambda n _ b, Pi _ t u) -> do
+        (Lambda n Nothing b, Pi _ t u) -> do
             x <- fresh n
-            local (Context.addId x t) $ check b (open (Var (Free x)) u)
-        (Lambda {}, _) -> throwError $ "expected function type, got: " <> pack (show ty') <> " against " <> pack (show e)
+            b' <- local (Context.addId x t) $ check b (open (Var (Free x)) u)
+            pure $ Lambda n Nothing b'
+        (Lambda _ Nothing _, _) -> throwError $ "expected function type, got: " <> pack (show ty') <> " against " <> pack (show e)
         _ -> do
             (e', t1) <- infer e
             equate t1 ty'
@@ -108,15 +114,15 @@ inferRecord (x:xs) =
             (e', t) <- infer e
             (xs', ts) <- inferRecord xs
             pure (Indexed e': xs', Indexed t:ts)
-        Named n (Ascribe e t) -> do
+        LetR n e t -> do
             n' <- fresh n
-            t' <- local (Context.addId n' Undefined) $ check t Type
+            t' <- check t Type
             e' <- local (Context.addId n' t') $ check e t'
             (xs', ts) <- local (Context.addDef n' e' . Context.addId n' t') $ inferRecord xs
             pure (Named n e':xs', Named n t':ts)
         Named n e -> do
             n' <- fresh n
-            (e', t) <- local (Context.addId n' Undefined) $ infer e
+            (e', t) <- infer e
             (xs', ts) <- local (Context.addDef n' e' . Context.addId n' t) $ inferRecord xs
             pure (Named n e':xs', Named n t:ts)
 
@@ -130,9 +136,10 @@ checkSigma (x:xs) =
             pure (Indexed e':xs')
         Named n e -> do
             n' <- fresh n
-            e' <- local (Context.addId n' Undefined) $ check e Type
+            e' <- check e Type
             xs' <- local (Context.addId n' e') $ checkSigma xs
             pure (Named n e': xs')
+        LetR {} -> throwError "recursive let is not allowed in sigma type"
 
 equate :: Term Local -> Term Local -> Gamma ()
 equate e1 e2 =
@@ -159,4 +166,5 @@ equate e1 e2 =
     where
         equateRow (Indexed e1, Indexed e2) = equate e1 e2
         equateRow (Named n1 e1, Named n2 e2) = if n1 /= n2 then throwError "fields must match" else equate e1 e2
+        equateRow (LetR n1 e1 t1, LetR n2 e2 t2) = if n1 /= n2 then throwError "fields must match" else equate e1 e2 >> equate t1 t2
         equateRow _ = throwError "indexed and named field at same position"

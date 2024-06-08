@@ -32,9 +32,13 @@ let double : (A : Type) (x : A) -> { A; A } = A x -> [x; x]
 
 let getX : (A : Type) (B : Type) { x : A ; B  } -> A = A B p -> p.x
 
+let fst : (A : Type) (B : A -> Type) {x : A; B x} -> A = A B p -> p.0
+
 let example = double Int 1
 
 let exampl2 = (getX (type [Int;Int]) (type [Int;Int]) [ x = [1; 2]; [3;4]]).0
+
+let example3 = fst Int ((a : Int) -> Int) [x = 0; 1]
 
 // prelude operations on boolean values
 
