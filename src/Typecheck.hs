@@ -10,7 +10,6 @@ import Eval (normalize)
 import Control.Monad.Reader
 import Data.Text hiding (zip)
 import Safe (atMay)
-import Debug.Trace (traceM)
 
 infer :: Nameless -> Gamma (Nameless, Type Local)
 infer e = do
@@ -32,9 +31,6 @@ infer e = do
                 case ty of
                     Pi _ t u -> do
                         r' <- check r t
-                        traceM $ "applying " ++ show l ++ " as " ++ show l' ++ " : " ++ show ty
-                        traceM $ "to " ++ show r ++ " as " ++ show r' ++ " : " ++ show t
-                        traceM $ "into " ++ show u
                         pure (Apply l' r', open r' u)
                     _ -> throwError $ "expected function got: " <> pack (show ty)
             If a b c -> do
